@@ -53,6 +53,44 @@ class OfflineTtsDemo
     [Option("matcha-vocoder", Required = false, HelpText = "Path to the vocoder model of Matcha")]
     public string Vocoder { get; set; } = "";
 
+    [Option("zipvoice-tokens", Required = false, Default = "", HelpText = "Path to tokens.txt for ZipVoice")]
+    public string ZipvoiceTokens { get; set; } = string.Empty;
+    [Option("zipvoice-text-model", Required = false, Default = "", HelpText = "Path to ZipVoice text encoder model")]
+    public string ZipvoiceTextModel { get; set; } = string.Empty;
+
+    [Option("zipvoice-flow-matching-model", Required = false, Default = "", HelpText = "Path to ZipVoice flow-matching decoder")]
+    public string ZipvoiceFlowMatchingModel { get; set; } = string.Empty;
+
+    [Option("zipvoice-data-dir", Required = false, Default = "", HelpText = "Path to espeak-ng-data for ZipVoice")]
+    public string ZipvoiceDataDir { get; set; } = string.Empty;
+
+    [Option("zipvoice-pinyin-dict", Required = false, Default = "", HelpText = "Path to pinyin.raw (for zh)")]
+    public string ZipvoicePinyinDict { get; set; } = string.Empty;
+
+    [Option("zipvoice-vocoder", Required = false, Default = "", HelpText = "Path to vocoder for ZipVoice (e.g., vocos_24khz.onnx)")]
+    public string ZipvoiceVocoder { get; set; } = string.Empty;
+
+    [Option("zipvoice-feat-scale", Required = false, Default = 0.1f, HelpText = "Feature scale for ZipVoice")]
+    public float ZipvoiceFeatScale { get; set; } = 0.1f;
+
+    [Option("zipvoice-t-shift", Required = false, Default = 0.5f, HelpText = "t-shift for ZipVoice (smaller -> earlier t)")]
+    public float ZipvoiceTShift { get; set; } = 0.5f;
+
+    [Option("zipvoice-target-rms", Required = false, Default = 0.1f, HelpText = "Target RMS for speech normalization (ZipVoice)")]
+    public float ZipvoiceTargetRms { get; set; } = 0.1f;
+
+    [Option("zipvoice-guidance-scale", Required = false, Default = 1.0f, HelpText = "Classifier-free guidance scale (ZipVoice)")]
+    public float ZipvoiceGuidanceScale { get; set; } = 1.0f;
+
+    [Option("zipvoice-num-steps", Required = false, Default = 4, HelpText = "Number of steps for ZipVoice inference")]
+    public int ZipvoiceNumSteps { get; set; } = 4;
+
+    [Option("prompt-text", Required = false, Default = "", HelpText = "Transcription of the prompt audio (ZipVoice)")]
+    public string PromptText { get; set; } = string.Empty;
+
+    [Option("prompt-audio", Required = false, Default = "", HelpText = "Path to prompt audio wav (ZipVoice)")]
+    public string PromptAudio { get; set; } = string.Empty;
+
     [Option("sid", Required = false, Default = 0, HelpText = "Speaker ID")]
     public int SpeakerId { get; set; } = 0;
 
@@ -143,6 +181,26 @@ dotnet run \
 Please refer to
 https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/index.html
 to download more models.
+
+# ZipVoice (zh-en emilia)
+
+wget -qq https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-zh-en-emilia.tar.bz2
+tar xf sherpa-onnx-zipvoice-distill-zh-en-emilia.tar.bz2
+rm sherpa-onnx-zipvoice-distill-zh-en-emilia.tar.bz2
+
+dotnet run \
+  --zipvoice-flow-matching-model=./sherpa-onnx-zipvoice-distill-zh-en-emilia/fm_decoder.onnx \
+  --zipvoice-text-model=./sherpa-onnx-zipvoice-distill-zh-en-emilia/text_encoder.onnx \
+  --zipvoice-data-dir=./sherpa-onnx-zipvoice-distill-zh-en-emilia/espeak-ng-data \
+  --zipvoice-pinyin-dict=./sherpa-onnx-zipvoice-distill-zh-en-emilia/pinyin.raw \
+  --zipvoice-tokens=./sherpa-onnx-zipvoice-distill-zh-en-emilia/tokens.txt \
+  --zipvoice-vocoder=./sherpa-onnx-zipvoice-distill-zh-en-emilia/vocos_24khz.onnx \
+  --prompt-audio=./sherpa-onnx-zipvoice-distill-zh-en-emilia/prompt.wav \
+  --prompt-text=周日被我射熄火了，所以今天是周一。 \
+  --zipvoice-num-steps=4 \
+  --debug=1 \
+  --output-filename=./test-zipvoice.wav \
+  --text=我是中国人民的儿子，我爱我的祖国。我的祖国是一个伟大的国家，拥有五千年的文明史。
 ";
 
     var helpText = HelpText.AutoBuild(result, h =>
@@ -174,6 +232,17 @@ to download more models.
     config.Model.Matcha.NoiseScale = options.NoiseScale;
     config.Model.Matcha.LengthScale = options.LengthScale;
 
+    config.Model.Zipvoice.Tokens = options.ZipvoiceTokens;
+    config.Model.Zipvoice.TextModel = options.ZipvoiceTextModel;
+    config.Model.Zipvoice.FlowMatchingModel = options.ZipvoiceFlowMatchingModel;
+    config.Model.Zipvoice.DataDir = options.ZipvoiceDataDir;
+    config.Model.Zipvoice.PinyinDict = options.ZipvoicePinyinDict;
+    config.Model.Zipvoice.Vocoder = options.ZipvoiceVocoder;
+    config.Model.Zipvoice.FeatScale = options.ZipvoiceFeatScale;
+    config.Model.Zipvoice.TShift = options.ZipvoiceTShift;
+    config.Model.Zipvoice.TargetRms = options.ZipvoiceTargetRms;
+    config.Model.Zipvoice.GuidanceScale = options.ZipvoiceGuidanceScale;
+
     config.Model.NumThreads = 1;
     config.Model.Debug = options.Debug;
     config.Model.Provider = "cpu";
@@ -184,7 +253,27 @@ to download more models.
     var tts = new OfflineTts(config);
     var speed = 1.0f / options.LengthScale;
     var sid = options.SpeakerId;
-    var audio = tts.Generate(options.Text, speed, sid);
+    OfflineTtsGeneratedAudio audio;
+
+    // If prompt audio is provided, use ZipVoice path
+    if (!string.IsNullOrEmpty(options.PromptAudio))
+    {
+      if (string.IsNullOrEmpty(options.PromptText))
+      {
+        Console.Error.WriteLine("For ZipVoice zero-shot TTS, --prompt-text is required when --prompt-audio is provided");
+        return;
+      }
+
+      // Read prompt wav
+      var waveReader = new WaveReader(options.PromptAudio);
+      audio = tts.GenerateWithZipvoice(options.Text, options.PromptText, waveReader.Samples, waveReader.SampleRate, speed, options.ZipvoiceNumSteps);
+    }
+    else
+    {
+      // Default path (e.g., VITS/Matcha), keep compatibility with existing demos
+      audio = tts.Generate(options.Text, speed, sid);
+    }
+
     var ok = audio.SaveToWaveFile(options.OutputFilename);
 
     if (ok)

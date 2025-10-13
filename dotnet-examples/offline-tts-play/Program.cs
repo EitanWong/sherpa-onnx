@@ -60,8 +60,6 @@ class OfflineTtsPlayDemo
     [Option("matcha-vocoder", Required = false, HelpText = "Path to the vocoder model of Matcha")]
     public string Vocoder { get; set; } = "";
 
-    [Option("zipvoice-tokens", Required = false, Default = "", HelpText = "Path to tokens.txt for ZipVoice")]
-    public string ZipvoiceTokens { get; set; } = string.Empty;
     [Option("zipvoice-text-model", Required = false, Default = "", HelpText = "Path to ZipVoice text encoder model")]
     public string ZipvoiceTextModel { get; set; } = string.Empty;
 
@@ -197,9 +195,9 @@ rm sherpa-onnx-zipvoice-distill-zh-en-emilia.tar.bz2
 dotnet run \
   --zipvoice-flow-matching-model=./sherpa-onnx-zipvoice-distill-zh-en-emilia/fm_decoder.onnx \
   --zipvoice-text-model=./sherpa-onnx-zipvoice-distill-zh-en-emilia/text_encoder.onnx \
+  --tokens=./sherpa-onnx-zipvoice-distill-zh-en-emilia/tokens.txt \
   --zipvoice-data-dir=./sherpa-onnx-zipvoice-distill-zh-en-emilia/espeak-ng-data \
   --zipvoice-pinyin-dict=./sherpa-onnx-zipvoice-distill-zh-en-emilia/pinyin.raw \
-  --zipvoice-tokens=./sherpa-onnx-zipvoice-distill-zh-en-emilia/tokens.txt \
   --zipvoice-vocoder=./sherpa-onnx-zipvoice-distill-zh-en-emilia/vocos_24khz.onnx \
   --prompt-audio=./sherpa-onnx-zipvoice-distill-zh-en-emilia/prompt.wav \
   --prompt-text=周日被我射熄火了，所以今天是周一。 \
@@ -221,6 +219,23 @@ dotnet run \
 
   private static void Run(Options options)
   {
+
+    // Validate CLI requirements
+    bool useZipvoice = !string.IsNullOrEmpty(options.PromptAudio);
+    if (useZipvoice)
+    {
+      var missing = new List<string>();
+      if (string.IsNullOrWhiteSpace(options.ZipvoiceTextModel)) missing.Add("--zipvoice-text-model");
+      if (string.IsNullOrWhiteSpace(options.ZipvoiceFlowMatchingModel)) missing.Add("--zipvoice-flow-matching-model");
+      if (string.IsNullOrWhiteSpace(options.ZipvoiceVocoder)) missing.Add("--zipvoice-vocoder");
+      if (string.IsNullOrWhiteSpace(options.PromptText)) missing.Add("--prompt-text");
+      if (missing.Count > 0)
+      {
+        Console.Error.WriteLine($"Missing required options for ZipVoice: {string.Join(", ", missing)}");
+        return;
+      }
+    }
+
     var config = new OfflineTtsConfig();
 
     config.Model.Vits.Model = options.Model;
@@ -239,7 +254,7 @@ dotnet run \
     config.Model.Matcha.NoiseScale = options.NoiseScale;
     config.Model.Matcha.LengthScale = options.LengthScale;
 
-    config.Model.Zipvoice.Tokens = options.ZipvoiceTokens;
+    config.Model.Zipvoice.Tokens = options.Tokens;
     config.Model.Zipvoice.TextModel = options.ZipvoiceTextModel;
     config.Model.Zipvoice.FlowMatchingModel = options.ZipvoiceFlowMatchingModel;
     config.Model.Zipvoice.DataDir = options.ZipvoiceDataDir;
@@ -385,7 +400,7 @@ dotnet run \
 
     var callback = new OfflineTtsCallback(MyCallback);
 
-    if (!string.IsNullOrEmpty(options.PromptAudio))
+    if (useZipvoice)
     {
       if (string.IsNullOrWhiteSpace(options.PromptText))
       {

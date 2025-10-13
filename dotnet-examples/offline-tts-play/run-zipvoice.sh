@@ -9,8 +9,6 @@ if [ ! -f ./sherpa-onnx-zipvoice-distill-zh-en-emilia/fm_decoder.onnx ]; then
   rm sherpa-onnx-zipvoice-distill-zh-en-emilia.tar.bz2
 fi
 
-pushd "$(dirname "$0")" >/dev/null
-
 dotnet build
 
 dotnet run \
@@ -19,7 +17,6 @@ dotnet run \
   --tokens=./sherpa-onnx-zipvoice-distill-zh-en-emilia/tokens.txt \
   --zipvoice-data-dir=./sherpa-onnx-zipvoice-distill-zh-en-emilia/espeak-ng-data \
   --zipvoice-pinyin-dict=./sherpa-onnx-zipvoice-distill-zh-en-emilia/pinyin.raw \
-  --zipvoice-tokens=./sherpa-onnx-zipvoice-distill-zh-en-emilia/tokens.txt \
   --zipvoice-vocoder=./sherpa-onnx-zipvoice-distill-zh-en-emilia/vocos_24khz.onnx \
   --prompt-audio=./sherpa-onnx-zipvoice-distill-zh-en-emilia/prompt.wav \
   --prompt-text="周日被我射熄火了，所以今天是周一。" \
@@ -27,5 +24,3 @@ dotnet run \
   --debug=1 \
   --output-filename=./test-zipvoice.wav \
   --text="我是中国人民的儿子，我爱我的祖国。我得祖国是一个伟大的国家，拥有五千年的文明史。"
-
-popd >/dev/null

@@ -10,8 +10,13 @@ namespace SherpaOnnx
     {
         public OfflinePunctuation(OfflinePunctuationConfig config)
         {
-            IntPtr h = SherpaOnnxCreateOfflinePunctuation(ref config);
-            _handle = new HandleRef(this, h);
+            IntPtr pointer = SherpaOnnxCreateOfflinePunctuation(ref config);
+            if (pointer == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("SherpaOnnxCreateOfflinePunctuation returned a null handle.");
+            }
+
+            _handle = NativeResourceHandle.Create(pointer, SherpaOnnxDestroyOfflinePunctuation);
         }
 
         public String AddPunct(String text)
@@ -21,7 +26,7 @@ namespace SherpaOnnx
             Array.Copy(utf8Bytes, utf8BytesWithNull, utf8Bytes.Length);
             utf8BytesWithNull[utf8Bytes.Length] = 0; // Null terminator
 
-            IntPtr p = SherpaOfflinePunctuationAddPunct(_handle.Handle, utf8BytesWithNull);
+            IntPtr p = SherpaOfflinePunctuationAddPunct(Handle, utf8BytesWithNull);
 
             string s = "";
             int length = 0;
@@ -66,26 +71,83 @@ namespace SherpaOnnx
 
         private void Cleanup()
         {
-            SherpaOnnxDestroyOfflinePunctuation(_handle.Handle);
-
-            // Don't permit the handle to be used again.
-            _handle = new HandleRef(this, IntPtr.Zero);
+            if (_handle != null)
+            {
+                _handle.Dispose();
+                _handle = null;
+            }
         }
 
-        private HandleRef _handle;
+        private IntPtr Handle
+        {
+            get { return _handle != null ? _handle.DangerousGetHandle() : IntPtr.Zero; }
+        }
 
+        private NativeResourceHandle _handle;
 
-        [DllImport(Dll.Filename)]
-        private static extern IntPtr SherpaOnnxCreateOfflinePunctuation(ref OfflinePunctuationConfig config);
+        #region P/Invoke
 
-        [DllImport(Dll.Filename)]
-        private static extern void SherpaOnnxDestroyOfflinePunctuation(IntPtr handle);
+        private static IntPtr SherpaOnnxCreateOfflinePunctuation(ref OfflinePunctuationConfig config)
+        {
+            OfflinePunctuationConfig configCopy = config;
+            if (Dll.TryInvokeInternal(() => NativeInternal.SherpaOnnxCreateOfflinePunctuation(ref configCopy), out var result))
+            {
+                return result;
+            }
+            return NativeExternal.SherpaOnnxCreateOfflinePunctuation(ref config);
+        }
 
-        [DllImport(Dll.Filename)]
-        private static extern IntPtr SherpaOfflinePunctuationAddPunct(IntPtr handle, [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.I1)] byte[] utf8Text);
+        private static void SherpaOnnxDestroyOfflinePunctuation(IntPtr handle)
+        {
+            Dll.Invoke(
+                () => NativeInternal.SherpaOnnxDestroyOfflinePunctuation(handle),
+                () => NativeExternal.SherpaOnnxDestroyOfflinePunctuation(handle));
+        }
 
-        [DllImport(Dll.Filename)]
-        private static extern void SherpaOfflinePunctuationFreeText(IntPtr p);
+        private static IntPtr SherpaOfflinePunctuationAddPunct(IntPtr handle, [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.I1)] byte[] utf8Text)
+        {
+            return Dll.Invoke(
+                () => NativeInternal.SherpaOfflinePunctuationAddPunct(handle, utf8Text),
+                () => NativeExternal.SherpaOfflinePunctuationAddPunct(handle, utf8Text));
+        }
+
+        private static void SherpaOfflinePunctuationFreeText(IntPtr p)
+        {
+            Dll.Invoke(
+                () => NativeInternal.SherpaOfflinePunctuationFreeText(p),
+                () => NativeExternal.SherpaOfflinePunctuationFreeText(p));
+        }
+
+        private static class NativeExternal
+        {
+            [DllImport(Dll.Filename)]
+            internal static extern IntPtr SherpaOnnxCreateOfflinePunctuation(ref OfflinePunctuationConfig config);
+
+            [DllImport(Dll.Filename)]
+            internal static extern void SherpaOnnxDestroyOfflinePunctuation(IntPtr handle);
+
+            [DllImport(Dll.Filename)]
+            internal static extern IntPtr SherpaOfflinePunctuationAddPunct(IntPtr handle, [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.I1)] byte[] utf8Text);
+
+            [DllImport(Dll.Filename)]
+            internal static extern void SherpaOfflinePunctuationFreeText(IntPtr p);
+        }
+
+        private static class NativeInternal
+        {
+            [DllImport(Dll.InternalFilename)]
+            internal static extern IntPtr SherpaOnnxCreateOfflinePunctuation(ref OfflinePunctuationConfig config);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern void SherpaOnnxDestroyOfflinePunctuation(IntPtr handle);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern IntPtr SherpaOfflinePunctuationAddPunct(IntPtr handle, [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.I1)] byte[] utf8Text);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern void SherpaOfflinePunctuationFreeText(IntPtr p);
+        }
+
+        #endregion
     }
 }
-

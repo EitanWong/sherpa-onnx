@@ -11,7 +11,12 @@ namespace SherpaOnnx
     {
         public OnlineStream(IntPtr p)
         {
-            _handle = new HandleRef(this, p);
+            if (p == IntPtr.Zero)
+            {
+                throw new ArgumentNullException(nameof(p), "OnlineStream handle cannot be null.");
+            }
+
+            _handle = NativeResourceHandle.Create(p, SherpaOnnxDestroyOnlineStream);
         }
 
         public void AcceptWaveform(int sampleRate, float[] samples)
@@ -39,23 +44,67 @@ namespace SherpaOnnx
 
         private void Cleanup()
         {
-            SherpaOnnxDestroyOnlineStream(Handle);
-
-            // Don't permit the handle to be used again.
-            _handle = new HandleRef(this, IntPtr.Zero);
+            if (_handle != null)
+            {
+                _handle.Dispose();
+                _handle = null;
+            }
         }
 
-        private HandleRef _handle;
-        public IntPtr Handle => _handle.Handle;
+        private NativeResourceHandle _handle;
+        public IntPtr Handle
+        {
+            get { return _handle != null ? _handle.DangerousGetHandle() : IntPtr.Zero; }
+        }
 
-        [DllImport(Dll.Filename)]
-        private static extern void SherpaOnnxDestroyOnlineStream(IntPtr handle);
+        #region P/Invoke
 
-        [DllImport(Dll.Filename)]
-        private static extern void SherpaOnnxOnlineStreamAcceptWaveform(IntPtr handle, int sampleRate, float[] samples, int n);
+        private static void SherpaOnnxDestroyOnlineStream(IntPtr handle)
+        {
+            Dll.Invoke(
+                () => NativeInternal.SherpaOnnxDestroyOnlineStream(handle),
+                () => NativeExternal.SherpaOnnxDestroyOnlineStream(handle));
+        }
 
-        [DllImport(Dll.Filename)]
-        private static extern void SherpaOnnxOnlineStreamInputFinished(IntPtr handle);
+        private static void SherpaOnnxOnlineStreamAcceptWaveform(IntPtr handle, int sampleRate, float[] samples, int n)
+        {
+            Dll.Invoke(
+                () => NativeInternal.SherpaOnnxOnlineStreamAcceptWaveform(handle, sampleRate, samples, n),
+                () => NativeExternal.SherpaOnnxOnlineStreamAcceptWaveform(handle, sampleRate, samples, n));
+        }
+
+        private static void SherpaOnnxOnlineStreamInputFinished(IntPtr handle)
+        {
+            Dll.Invoke(
+                () => NativeInternal.SherpaOnnxOnlineStreamInputFinished(handle),
+                () => NativeExternal.SherpaOnnxOnlineStreamInputFinished(handle));
+        }
+
+        private static class NativeExternal
+        {
+            [DllImport(Dll.Filename)]
+            internal static extern void SherpaOnnxDestroyOnlineStream(IntPtr handle);
+
+            [DllImport(Dll.Filename)]
+            internal static extern void SherpaOnnxOnlineStreamAcceptWaveform(IntPtr handle, int sampleRate, float[] samples, int n);
+
+            [DllImport(Dll.Filename)]
+            internal static extern void SherpaOnnxOnlineStreamInputFinished(IntPtr handle);
+        }
+
+        private static class NativeInternal
+        {
+            [DllImport(Dll.InternalFilename)]
+            internal static extern void SherpaOnnxDestroyOnlineStream(IntPtr handle);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern void SherpaOnnxOnlineStreamAcceptWaveform(IntPtr handle, int sampleRate, float[] samples, int n);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern void SherpaOnnxOnlineStreamInputFinished(IntPtr handle);
+        }
+
+        #endregion
     }
 
 }

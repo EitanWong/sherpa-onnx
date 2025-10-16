@@ -5,11 +5,16 @@ using System.Text;
 
 namespace SherpaOnnx
 {
-    public class OfflineTtsGeneratedAudio
+    public class OfflineTtsGeneratedAudio : IDisposable
     {
         public OfflineTtsGeneratedAudio(IntPtr p)
         {
-            _handle = new HandleRef(this, p);
+            if (p == IntPtr.Zero)
+            {
+                throw new ArgumentNullException(nameof(p), "Generated audio handle cannot be null.");
+            }
+
+            _handle = NativeResourceHandle.Create(p, SherpaOnnxDestroyOfflineTtsGeneratedAudio);
         }
 
         public bool SaveToWaveFile(String filename)
@@ -38,10 +43,11 @@ namespace SherpaOnnx
 
         private void Cleanup()
         {
-            SherpaOnnxDestroyOfflineTtsGeneratedAudio(Handle);
-
-            // Don't permit the handle to be used again.
-            _handle = new HandleRef(this, IntPtr.Zero);
+            if (_handle != null)
+            {
+                _handle.Dispose();
+                _handle = null;
+            }
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -52,8 +58,11 @@ namespace SherpaOnnx
             public int SampleRate;
         }
 
-        private HandleRef _handle;
-        public IntPtr Handle => _handle.Handle;
+        private NativeResourceHandle _handle;
+        public IntPtr Handle
+        {
+            get { return _handle != null ? _handle.DangerousGetHandle() : IntPtr.Zero; }
+        }
 
         public int NumSamples
         {
@@ -84,11 +93,40 @@ namespace SherpaOnnx
                 return samples;
             }
         }
+        #region P/Invoke
 
-        [DllImport(Dll.Filename)]
-        private static extern void SherpaOnnxDestroyOfflineTtsGeneratedAudio(IntPtr handle);
+        private static void SherpaOnnxDestroyOfflineTtsGeneratedAudio(IntPtr handle)
+        {
+            Dll.Invoke(
+                () => NativeInternal.SherpaOnnxDestroyOfflineTtsGeneratedAudio(handle),
+                () => NativeExternal.SherpaOnnxDestroyOfflineTtsGeneratedAudio(handle));
+        }
 
-        [DllImport(Dll.Filename)]
-        private static extern int SherpaOnnxWriteWave(IntPtr samples, int n, int sample_rate, [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.I1)] byte[] utf8Filename);
+        private static int SherpaOnnxWriteWave(IntPtr samples, int n, int sample_rate, [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.I1)] byte[] utf8Filename)
+        {
+            return Dll.Invoke(
+                () => NativeInternal.SherpaOnnxWriteWave(samples, n, sample_rate, utf8Filename),
+                () => NativeExternal.SherpaOnnxWriteWave(samples, n, sample_rate, utf8Filename));
+        }
+
+        private static class NativeExternal
+        {
+            [DllImport(Dll.Filename)]
+            internal static extern void SherpaOnnxDestroyOfflineTtsGeneratedAudio(IntPtr handle);
+
+            [DllImport(Dll.Filename)]
+            internal static extern int SherpaOnnxWriteWave(IntPtr samples, int n, int sample_rate, [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.I1)] byte[] utf8Filename);
+        }
+
+        private static class NativeInternal
+        {
+            [DllImport(Dll.InternalFilename)]
+            internal static extern void SherpaOnnxDestroyOfflineTtsGeneratedAudio(IntPtr handle);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern int SherpaOnnxWriteWave(IntPtr samples, int n, int sample_rate, [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.I1)] byte[] utf8Filename);
+        }
+
+        #endregion
     }
 }

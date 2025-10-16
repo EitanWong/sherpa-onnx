@@ -1,4 +1,4 @@
-/// Copyright (c)  2025  Xiaomi Corporation (authors: Fangjun Kuang)
+﻿/// Copyright (c)  2025  Xiaomi Corporation (authors: Fangjun Kuang)
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -108,13 +108,53 @@ namespace SherpaOnnx
         }
 
 
-        [DllImport(Dll.Filename)]
-        private static extern IntPtr SherpaOnnxGetVersionStr();
+        #region P/Invoke
 
-        [DllImport(Dll.Filename)]
-        private static extern IntPtr SherpaOnnxGetGitSha1();
+        private static IntPtr SherpaOnnxGetVersionStr()
+        {
+            return Dll.Invoke(
+                () => NativeInternal.SherpaOnnxGetVersionStr(),
+                () => NativeExternal.SherpaOnnxGetVersionStr());
+        }
 
-        [DllImport(Dll.Filename)]
-        private static extern IntPtr SherpaOnnxGetGitDate();
+        private static IntPtr SherpaOnnxGetGitSha1()
+        {
+            return Dll.Invoke(
+                () => NativeInternal.SherpaOnnxGetGitSha1(),
+                () => NativeExternal.SherpaOnnxGetGitSha1());
+        }
+
+        private static IntPtr SherpaOnnxGetGitDate()
+        {
+            return Dll.Invoke(
+                () => NativeInternal.SherpaOnnxGetGitDate(),
+                () => NativeExternal.SherpaOnnxGetGitDate());
+        }
+
+        private static class NativeExternal
+        {
+            [DllImport(Dll.Filename)]
+            internal static extern IntPtr SherpaOnnxGetVersionStr();
+
+            [DllImport(Dll.Filename)]
+            internal static extern IntPtr SherpaOnnxGetGitSha1();
+
+            [DllImport(Dll.Filename)]
+            internal static extern IntPtr SherpaOnnxGetGitDate();
+        }
+
+        private static class NativeInternal
+        {
+            [DllImport(Dll.InternalFilename)]
+            internal static extern IntPtr SherpaOnnxGetVersionStr();
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern IntPtr SherpaOnnxGetGitSha1();
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern IntPtr SherpaOnnxGetGitDate();
+        }
+
+        #endregion
     }
 }

@@ -1,21 +1,26 @@
-/// Copyright (c)  2025  Xiaomi Corporation (authors: Fangjun Kuang)
+﻿/// Copyright (c)  2025  Xiaomi Corporation (authors: Fangjun Kuang)
 
 using System;
 using System.Runtime.InteropServices;
 
 namespace SherpaOnnx
 {
-    public class OfflineSpeechDenoiser: IDisposable
+    public class OfflineSpeechDenoiser : IDisposable
     {
         public OfflineSpeechDenoiser(OfflineSpeechDenoiserConfig config)
         {
-            IntPtr h = SherpaOnnxCreateOfflineSpeechDenoiser(ref config);
-            _handle = new HandleRef(this, h);
+            IntPtr pointer = SherpaOnnxCreateOfflineSpeechDenoiser(ref config);
+            if (pointer == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("SherpaOnnxCreateOfflineSpeechDenoiser returned a null handle.");
+            }
+
+            _handle = NativeResourceHandle.Create(pointer, SherpaOnnxDestroyOfflineSpeechDenoiser);
         }
 
         public DenoisedAudio Run(float[] samples, int sampleRate)
         {
-            IntPtr p = SherpaOnnxOfflineSpeechDenoiserRun(_handle.Handle, samples, samples.Length, sampleRate);
+            IntPtr p = SherpaOnnxOfflineSpeechDenoiserRun(Handle, samples, samples.Length, sampleRate);
             return new DenoisedAudio(p);
         }
 
@@ -34,32 +39,90 @@ namespace SherpaOnnx
 
         private void Cleanup()
         {
-            SherpaOnnxDestroyOfflineSpeechDenoiser(_handle.Handle);
-
-            // Don't permit the handle to be used again.
-            _handle = new HandleRef(this, IntPtr.Zero);
+            if (_handle != null)
+            {
+                _handle.Dispose();
+                _handle = null;
+            }
         }
 
-        private HandleRef _handle;
+        private IntPtr Handle
+        {
+            get { return _handle != null ? _handle.DangerousGetHandle() : IntPtr.Zero; }
+        }
+
+        private NativeResourceHandle _handle;
 
         public int SampleRate
         {
             get
             {
-                return SherpaOnnxOfflineSpeechDenoiserGetSampleRate(_handle.Handle);
+                return SherpaOnnxOfflineSpeechDenoiserGetSampleRate(Handle);
             }
         }
+        #region P/Invoke
 
-        [DllImport(Dll.Filename)]
-        private static extern IntPtr SherpaOnnxCreateOfflineSpeechDenoiser(ref OfflineSpeechDenoiserConfig config);
+        private static IntPtr SherpaOnnxCreateOfflineSpeechDenoiser(ref OfflineSpeechDenoiserConfig config)
+        {
+            OfflineSpeechDenoiserConfig configCopy = config;
+            if (Dll.TryInvokeInternal(() => NativeInternal.SherpaOnnxCreateOfflineSpeechDenoiser(ref configCopy), out var result))
+            {
+                return result;
+            }
+            return NativeExternal.SherpaOnnxCreateOfflineSpeechDenoiser(ref config);
+        }
 
-        [DllImport(Dll.Filename)]
-        private static extern void SherpaOnnxDestroyOfflineSpeechDenoiser(IntPtr handle);
+        private static void SherpaOnnxDestroyOfflineSpeechDenoiser(IntPtr handle)
+        {
+            Dll.Invoke(
+                () => NativeInternal.SherpaOnnxDestroyOfflineSpeechDenoiser(handle),
+                () => NativeExternal.SherpaOnnxDestroyOfflineSpeechDenoiser(handle));
+        }
 
-        [DllImport(Dll.Filename)]
-        private static extern int SherpaOnnxOfflineSpeechDenoiserGetSampleRate(IntPtr handle);
+        private static int SherpaOnnxOfflineSpeechDenoiserGetSampleRate(IntPtr handle)
+        {
+            return Dll.Invoke(
+                () => NativeInternal.SherpaOnnxOfflineSpeechDenoiserGetSampleRate(handle),
+                () => NativeExternal.SherpaOnnxOfflineSpeechDenoiserGetSampleRate(handle));
+        }
 
-        [DllImport(Dll.Filename)]
-        private static extern IntPtr SherpaOnnxOfflineSpeechDenoiserRun(IntPtr handle, float[] samples, int n, int sampleRate);
+        private static IntPtr SherpaOnnxOfflineSpeechDenoiserRun(IntPtr handle, float[] samples, int n, int sampleRate)
+        {
+            return Dll.Invoke(
+                () => NativeInternal.SherpaOnnxOfflineSpeechDenoiserRun(handle, samples, n, sampleRate),
+                () => NativeExternal.SherpaOnnxOfflineSpeechDenoiserRun(handle, samples, n, sampleRate));
+        }
+
+        private static class NativeExternal
+        {
+            [DllImport(Dll.Filename)]
+            internal static extern IntPtr SherpaOnnxCreateOfflineSpeechDenoiser(ref OfflineSpeechDenoiserConfig config);
+
+            [DllImport(Dll.Filename)]
+            internal static extern void SherpaOnnxDestroyOfflineSpeechDenoiser(IntPtr handle);
+
+            [DllImport(Dll.Filename)]
+            internal static extern int SherpaOnnxOfflineSpeechDenoiserGetSampleRate(IntPtr handle);
+
+            [DllImport(Dll.Filename)]
+            internal static extern IntPtr SherpaOnnxOfflineSpeechDenoiserRun(IntPtr handle, float[] samples, int n, int sampleRate);
+        }
+
+        private static class NativeInternal
+        {
+            [DllImport(Dll.InternalFilename)]
+            internal static extern IntPtr SherpaOnnxCreateOfflineSpeechDenoiser(ref OfflineSpeechDenoiserConfig config);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern void SherpaOnnxDestroyOfflineSpeechDenoiser(IntPtr handle);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern int SherpaOnnxOfflineSpeechDenoiserGetSampleRate(IntPtr handle);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern IntPtr SherpaOnnxOfflineSpeechDenoiserRun(IntPtr handle, float[] samples, int n, int sampleRate);
+        }
+
+        #endregion
     }
 }

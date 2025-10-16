@@ -10,7 +10,12 @@ namespace SherpaOnnx
     {
         public OfflineStream(IntPtr p)
         {
-            _handle = new HandleRef(this, p);
+            if (p == IntPtr.Zero)
+            {
+                throw new ArgumentNullException(nameof(p), "OfflineStream handle cannot be null.");
+            }
+
+            _handle = NativeResourceHandle.Create(p, SherpaOnnxDestroyOfflineStream);
         }
 
         public void AcceptWaveform(int sampleRate, float[] samples)
@@ -22,7 +27,7 @@ namespace SherpaOnnx
         {
             get
             {
-                IntPtr h = GetResult(_handle.Handle);
+                IntPtr h = GetResult(Handle);
                 OfflineRecognizerResult result = new OfflineRecognizerResult(h);
                 DestroyResult(h);
                 return result;
@@ -44,26 +49,79 @@ namespace SherpaOnnx
 
         private void Cleanup()
         {
-            SherpaOnnxDestroyOfflineStream(Handle);
-
-            // Don't permit the handle to be used again.
-            _handle = new HandleRef(this, IntPtr.Zero);
+            if (_handle != null)
+            {
+                _handle.Dispose();
+                _handle = null;
+            }
         }
 
-        private HandleRef _handle;
-        public IntPtr Handle => _handle.Handle;
+        private NativeResourceHandle _handle;
+        public IntPtr Handle
+        {
+            get { return _handle != null ? _handle.DangerousGetHandle() : IntPtr.Zero; }
+        }
+        #region P/Invoke
 
-        [DllImport(Dll.Filename)]
-        private static extern void SherpaOnnxDestroyOfflineStream(IntPtr handle);
+        private static void SherpaOnnxDestroyOfflineStream(IntPtr handle)
+        {
+            Dll.Invoke(
+                () => NativeInternal.SherpaOnnxDestroyOfflineStream(handle),
+                () => NativeExternal.SherpaOnnxDestroyOfflineStream(handle));
+        }
 
-        [DllImport(Dll.Filename, EntryPoint = "SherpaOnnxAcceptWaveformOffline")]
-        private static extern void AcceptWaveform(IntPtr handle, int sampleRate, float[] samples, int n);
+        private static void AcceptWaveform(IntPtr handle, int sampleRate, float[] samples, int n)
+        {
+            Dll.Invoke(
+                () => NativeInternal.AcceptWaveform(handle, sampleRate, samples, n),
+                () => NativeExternal.AcceptWaveform(handle, sampleRate, samples, n));
+        }
 
-        [DllImport(Dll.Filename, EntryPoint = "SherpaOnnxGetOfflineStreamResult")]
-        private static extern IntPtr GetResult(IntPtr handle);
+        private static IntPtr GetResult(IntPtr handle)
+        {
+            return Dll.Invoke(
+                () => NativeInternal.GetResult(handle),
+                () => NativeExternal.GetResult(handle));
+        }
 
-        [DllImport(Dll.Filename, EntryPoint = "SherpaOnnxDestroyOfflineRecognizerResult")]
-        private static extern void DestroyResult(IntPtr handle);
+        private static void DestroyResult(IntPtr handle)
+        {
+            Dll.Invoke(
+                () => NativeInternal.DestroyResult(handle),
+                () => NativeExternal.DestroyResult(handle));
+        }
+
+        private static class NativeExternal
+        {
+            [DllImport(Dll.Filename)]
+            internal static extern void SherpaOnnxDestroyOfflineStream(IntPtr handle);
+
+            [DllImport(Dll.Filename, EntryPoint = "SherpaOnnxAcceptWaveformOffline")]
+            internal static extern void AcceptWaveform(IntPtr handle, int sampleRate, float[] samples, int n);
+
+            [DllImport(Dll.Filename, EntryPoint = "SherpaOnnxGetOfflineStreamResult")]
+            internal static extern IntPtr GetResult(IntPtr handle);
+
+            [DllImport(Dll.Filename, EntryPoint = "SherpaOnnxDestroyOfflineRecognizerResult")]
+            internal static extern void DestroyResult(IntPtr handle);
+        }
+
+        private static class NativeInternal
+        {
+            [DllImport(Dll.InternalFilename)]
+            internal static extern void SherpaOnnxDestroyOfflineStream(IntPtr handle);
+
+            [DllImport(Dll.InternalFilename, EntryPoint = "SherpaOnnxAcceptWaveformOffline")]
+            internal static extern void AcceptWaveform(IntPtr handle, int sampleRate, float[] samples, int n);
+
+            [DllImport(Dll.InternalFilename, EntryPoint = "SherpaOnnxGetOfflineStreamResult")]
+            internal static extern IntPtr GetResult(IntPtr handle);
+
+            [DllImport(Dll.InternalFilename, EntryPoint = "SherpaOnnxDestroyOfflineRecognizerResult")]
+            internal static extern void DestroyResult(IntPtr handle);
+        }
+
+        #endregion
     }
 
 }

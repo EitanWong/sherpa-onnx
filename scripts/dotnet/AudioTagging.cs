@@ -10,13 +10,18 @@ namespace SherpaOnnx
     {
         public AudioTagging(AudioTaggingConfig config)
         {
-            IntPtr h = SherpaOnnxCreateAudioTagging(ref config);
-            _handle = new HandleRef(this, h);
+            IntPtr pointer = SherpaOnnxCreateAudioTagging(ref config);
+            if (pointer == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("SherpaOnnxCreateAudioTagging returned a null handle.");
+            }
+
+            _handle = NativeResourceHandle.Create(pointer, SherpaOnnxDestroyAudioTagging);
         }
 
         public OfflineStream CreateStream()
         {
-            IntPtr p = SherpaOnnxAudioTaggingCreateOfflineStream(_handle.Handle);
+            IntPtr p = SherpaOnnxAudioTaggingCreateOfflineStream(Handle);
             return new OfflineStream(p);
         }
 
@@ -24,7 +29,7 @@ namespace SherpaOnnx
         // if topK > 0, then config.TopK is ignored
         public AudioEvent[] Compute(OfflineStream stream, int topK = -1)
         {
-            IntPtr p = SherpaOnnxAudioTaggingCompute(_handle.Handle, stream.Handle, topK);
+            IntPtr p = SherpaOnnxAudioTaggingCompute(Handle, stream.Handle, topK);
 
             var result = new List<AudioEvent>();
 
@@ -68,29 +73,97 @@ namespace SherpaOnnx
 
         private void Cleanup()
         {
-            SherpaOnnxDestroyAudioTagging(_handle.Handle);
-
-            // Don't permit the handle to be used again.
-            _handle = new HandleRef(this, IntPtr.Zero);
+            if (_handle != null)
+            {
+                _handle.Dispose();
+                _handle = null;
+            }
         }
 
-        private HandleRef _handle;
+        private IntPtr Handle
+        {
+            get { return _handle != null ? _handle.DangerousGetHandle() : IntPtr.Zero; }
+        }
 
+        private NativeResourceHandle _handle;
 
-        [DllImport(Dll.Filename)]
-        private static extern IntPtr SherpaOnnxCreateAudioTagging(ref AudioTaggingConfig config);
+        #region P/Invoke
 
-        [DllImport(Dll.Filename)]
-        private static extern void SherpaOnnxDestroyAudioTagging(IntPtr handle);
+        private static IntPtr SherpaOnnxCreateAudioTagging(ref AudioTaggingConfig config)
+        {
+            AudioTaggingConfig configCopy = config;
+            if (Dll.TryInvokeInternal(() => NativeInternal.SherpaOnnxCreateAudioTagging(ref configCopy), out var result))
+            {
+                return result;
+            }
 
-        [DllImport(Dll.Filename)]
-        private static extern IntPtr SherpaOnnxAudioTaggingCreateOfflineStream(IntPtr handle);
+            return NativeExternal.SherpaOnnxCreateAudioTagging(ref config);
+        }
 
-        [DllImport(Dll.Filename)]
-        private static extern IntPtr SherpaOnnxAudioTaggingCompute(IntPtr handle, IntPtr stream, int topK);
+        private static void SherpaOnnxDestroyAudioTagging(IntPtr handle)
+        {
+            Dll.Invoke(
+                () => NativeInternal.SherpaOnnxDestroyAudioTagging(handle),
+                () => NativeExternal.SherpaOnnxDestroyAudioTagging(handle));
+        }
 
-        [DllImport(Dll.Filename)]
-        private static extern void SherpaOnnxAudioTaggingFreeResults(IntPtr p);
+        private static IntPtr SherpaOnnxAudioTaggingCreateOfflineStream(IntPtr handle)
+        {
+            return Dll.Invoke(
+                () => NativeInternal.SherpaOnnxAudioTaggingCreateOfflineStream(handle),
+                () => NativeExternal.SherpaOnnxAudioTaggingCreateOfflineStream(handle));
+        }
+
+        private static IntPtr SherpaOnnxAudioTaggingCompute(IntPtr handle, IntPtr stream, int topK)
+        {
+            return Dll.Invoke(
+                () => NativeInternal.SherpaOnnxAudioTaggingCompute(handle, stream, topK),
+                () => NativeExternal.SherpaOnnxAudioTaggingCompute(handle, stream, topK));
+        }
+
+        private static void SherpaOnnxAudioTaggingFreeResults(IntPtr p)
+        {
+            Dll.Invoke(
+                () => NativeInternal.SherpaOnnxAudioTaggingFreeResults(p),
+                () => NativeExternal.SherpaOnnxAudioTaggingFreeResults(p));
+        }
+
+        private static class NativeExternal
+        {
+            [DllImport(Dll.Filename)]
+            internal static extern IntPtr SherpaOnnxCreateAudioTagging(ref AudioTaggingConfig config);
+
+            [DllImport(Dll.Filename)]
+            internal static extern void SherpaOnnxDestroyAudioTagging(IntPtr handle);
+
+            [DllImport(Dll.Filename)]
+            internal static extern IntPtr SherpaOnnxAudioTaggingCreateOfflineStream(IntPtr handle);
+
+            [DllImport(Dll.Filename)]
+            internal static extern IntPtr SherpaOnnxAudioTaggingCompute(IntPtr handle, IntPtr stream, int topK);
+
+            [DllImport(Dll.Filename)]
+            internal static extern void SherpaOnnxAudioTaggingFreeResults(IntPtr p);
+        }
+
+        private static class NativeInternal
+        {
+            [DllImport(Dll.InternalFilename)]
+            internal static extern IntPtr SherpaOnnxCreateAudioTagging(ref AudioTaggingConfig config);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern void SherpaOnnxDestroyAudioTagging(IntPtr handle);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern IntPtr SherpaOnnxAudioTaggingCreateOfflineStream(IntPtr handle);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern IntPtr SherpaOnnxAudioTaggingCompute(IntPtr handle, IntPtr stream, int topK);
+
+            [DllImport(Dll.InternalFilename)]
+            internal static extern void SherpaOnnxAudioTaggingFreeResults(IntPtr p);
+        }
+
+        #endregion
     }
 }
-

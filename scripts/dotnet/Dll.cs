@@ -1,7 +1,7 @@
-﻿using System;
+using System;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Threading;
 
 namespace SherpaOnnx
 {
@@ -24,7 +24,30 @@ namespace SherpaOnnx
         internal delegate TResult ResultFactory<TResult>();
         internal delegate void VoidAction();
 
-        private static int _bindingState = (int)BindingMode.InternalPreferred;
+        private const int StateInternalPreferred = (int)BindingMode.InternalPreferred;
+        private const int StateInternalOnly = (int)BindingMode.InternalOnly;
+        private const int StateExternalOnly = (int)BindingMode.ExternalOnly;
+        private const BindingFlags StaticPublicBindingFlags = BindingFlags.Public | BindingFlags.Static;
+
+        private static readonly OSPlatform AppleIosPlatform = OSPlatform.Create("IOS");
+        private static readonly OSPlatform AppleTvOsPlatform = OSPlatform.Create("TVOS");
+
+        private static readonly bool IsAppleMobile = DetectAppleMobilePlatform();
+        private static readonly Type UnityScriptingUtilityType = GetTypeOrDefault(
+            "UnityEngine.ScriptingUtility, UnityEngine.CoreModule",
+            "UnityEngine.ScriptingUtility, UnityEngine");
+        private static readonly PropertyInfo UnityScriptingUtilityIsIl2CppProperty =
+            UnityScriptingUtilityType?.GetProperty("isIL2CPP", StaticPublicBindingFlags);
+        private static readonly MethodInfo UnityScriptingUtilityIsIl2CppMethod =
+            UnityScriptingUtilityType?.GetMethod("IsIL2CPP", StaticPublicBindingFlags, null, Type.EmptyTypes, null);
+        private static readonly Type UnityApplicationType = GetTypeOrDefault(
+            "UnityEngine.Application, UnityEngine.CoreModule",
+            "UnityEngine.Application, UnityEngine");
+        private static readonly PropertyInfo UnityApplicationPlatformProperty =
+            UnityApplicationType?.GetProperty("platform", StaticPublicBindingFlags);
+        private static readonly bool IsUnityIl2CppRuntime = DetectUnityIl2Cpp();
+
+        private static volatile int _bindingState = StateInternalPreferred;
 
         static Dll()
         {
@@ -35,63 +58,80 @@ namespace SherpaOnnx
                 return;
             }
 
-            if (IsAppleMobilePlatform() || IsUnityIl2Cpp())
+            if (IsAppleMobile || IsUnityIl2CppRuntime)
             {
-                _bindingState = (int)BindingMode.InternalOnly;
+                _bindingState = StateInternalOnly;
+                return;
             }
+
+            _bindingState = ProbeInternalBinding() ? StateInternalOnly : StateExternalOnly;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static TResult Invoke<TResult>(ResultFactory<TResult> internalCall, ResultFactory<TResult> externalCall)
         {
-            if (TryInvokeInternal(internalCall, out var result))
+            if (TryInvokeInternalCore(internalCall, out var result))
             {
                 return result;
             }
 
-            return ExecuteExternal(externalCall);
+            return InvokeExternal(externalCall);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static void Invoke(VoidAction internalCall, VoidAction externalCall)
         {
-            if (InvokeInternal(internalCall))
+            if (TryInvokeInternalCore(internalCall))
             {
                 return;
             }
 
-            ExecuteExternal(externalCall);
+            InvokeExternal(externalCall);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static bool TryInvokeInternal<TResult>(ResultFactory<TResult> internalCall, out TResult result)
         {
-            result = default(TResult);
+            return TryInvokeInternalCore(internalCall, out result);
+        }
 
-            if (!CanUseInternal())
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static bool InvokeInternal(VoidAction internalCall)
+        {
+            return TryInvokeInternalCore(internalCall);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool TryInvokeInternalCore<TResult>(ResultFactory<TResult> internalCall, out TResult result)
+        {
+            result = default;
+            if (_bindingState == StateExternalOnly)
             {
                 return false;
             }
 
             try
             {
-                var value = internalCall();
-                MarkInternalSuccess();
-                result = value;
+                result = internalCall();
+                _bindingState = StateInternalOnly;
                 return true;
             }
             catch (DllNotFoundException)
             {
-                MarkExternalFallback();
+                _bindingState = StateExternalOnly;
             }
             catch (EntryPointNotFoundException)
             {
-                MarkExternalFallback();
+                _bindingState = StateExternalOnly;
             }
 
             return false;
         }
 
-        internal static bool InvokeInternal(VoidAction internalCall)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool TryInvokeInternalCore(VoidAction internalCall)
         {
-            if (!CanUseInternal())
+            if (_bindingState == StateExternalOnly)
             {
                 return false;
             }
@@ -99,222 +139,203 @@ namespace SherpaOnnx
             try
             {
                 internalCall();
-                MarkInternalSuccess();
+                _bindingState = StateInternalOnly;
                 return true;
             }
             catch (DllNotFoundException)
             {
-                MarkExternalFallback();
+                _bindingState = StateExternalOnly;
             }
             catch (EntryPointNotFoundException)
             {
-                MarkExternalFallback();
+                _bindingState = StateExternalOnly;
             }
 
             return false;
         }
 
-        private static bool CanUseInternal()
-        {
-            return Thread.VolatileRead(ref _bindingState) != (int)BindingMode.ExternalOnly;
-        }
-
-        private static TResult ExecuteExternal<TResult>(ResultFactory<TResult> externalCall)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static TResult InvokeExternal<TResult>(ResultFactory<TResult> externalCall)
         {
             var value = externalCall();
-            MarkExternalSuccess();
+            _bindingState = StateExternalOnly;
             return value;
         }
 
-        private static void ExecuteExternal(VoidAction externalCall)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void InvokeExternal(VoidAction externalCall)
         {
             externalCall();
-            MarkExternalSuccess();
-        }
-
-        private static void MarkInternalSuccess()
-        {
-            Interlocked.Exchange(ref _bindingState, (int)BindingMode.InternalOnly);
-        }
-
-        private static void MarkExternalFallback()
-        {
-            Interlocked.Exchange(ref _bindingState, (int)BindingMode.ExternalOnly);
-        }
-
-        private static void MarkExternalSuccess()
-        {
-            Interlocked.Exchange(ref _bindingState, (int)BindingMode.ExternalOnly);
+            _bindingState = StateExternalOnly;
         }
 
         private static int? GetEnvironmentFlag()
         {
-            string binding = Environment.GetEnvironmentVariable(BindingEnvVariable);
-            if (!IsNullOrWhiteSpace(binding))
+            if (TryGetBindingMode(Environment.GetEnvironmentVariable(BindingEnvVariable), out var mode))
             {
-                if (IsTrue(binding) || string.Equals(binding, "internal", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(binding, "__internal", StringComparison.OrdinalIgnoreCase))
-                {
-                    return (int)BindingMode.InternalOnly;
-                }
-
-                if (string.Equals(binding, "external", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(binding, "dll", StringComparison.OrdinalIgnoreCase))
-                {
-                    return (int)BindingMode.ExternalOnly;
-                }
+                return mode;
             }
 
             if (IsTrue(Environment.GetEnvironmentVariable(ForceInternalEnvVariable)))
             {
-                return (int)BindingMode.InternalOnly;
+                return StateInternalOnly;
             }
 
             if (IsTrue(Environment.GetEnvironmentVariable(ForceExternalEnvVariable)))
             {
-                return (int)BindingMode.ExternalOnly;
+                return StateExternalOnly;
             }
 
             return null;
         }
 
-        private static bool IsTrue(string value)
+        private static bool TryGetBindingMode(string value, out int mode)
         {
-            if (IsNullOrWhiteSpace(value))
+            mode = default;
+            if (string.IsNullOrWhiteSpace(value))
             {
                 return false;
             }
 
-            switch (value.Trim().ToLowerInvariant())
+            var trimmed = value.Trim();
+            var comparison = StringComparison.OrdinalIgnoreCase;
+
+            if (IsTrue(trimmed) ||
+                string.Equals(trimmed, "internal", comparison) ||
+                string.Equals(trimmed, InternalFilename, comparison))
             {
-                case "1":
-                case "true":
-                case "yes":
-                case "on":
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        private static bool IsAppleMobilePlatform()
-        {
-            try
-            {
-                var runtimeInfoType = Type.GetType("System.Runtime.InteropServices.RuntimeInformation, System.Runtime.InteropServices.RuntimeInformation");
-                var osPlatformType = Type.GetType("System.Runtime.InteropServices.OSPlatform, System.Runtime.InteropServices.RuntimeInformation");
-
-                if (runtimeInfoType == null || osPlatformType == null)
-                {
-                    return false;
-                }
-
-                var createMethod = osPlatformType.GetMethod("Create", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(string) }, null);
-                if (createMethod == null)
-                {
-                    return false;
-                }
-
-                var iosPlatform = createMethod.Invoke(null, new object[] { "IOS" });
-                if (iosPlatform == null)
-                {
-                    return false;
-                }
-
-                var isOsPlatform = runtimeInfoType.GetMethod("IsOSPlatform", BindingFlags.Public | BindingFlags.Static);
-                if (isOsPlatform == null)
-                {
-                    return false;
-                }
-
-                if ((bool)isOsPlatform.Invoke(null, new[] { iosPlatform }))
-                {
-                    return true;
-                }
-
-                var tvosPlatform = createMethod.Invoke(null, new object[] { "TVOS" });
-                if (tvosPlatform != null && (bool)isOsPlatform.Invoke(null, new[] { tvosPlatform }))
-                {
-                    return true;
-                }
-            }
-            catch
-            {
-                // Ignore and fallback to the default behaviour.
-            }
-
-            return false;
-        }
-
-        private static bool IsUnityIl2Cpp()
-        {
-            try
-            {
-                var applicationType = Type.GetType("UnityEngine.Application, UnityEngine.CoreModule") ??
-                                      Type.GetType("UnityEngine.Application, UnityEngine");
-                if (applicationType == null)
-                {
-                    return false;
-                }
-
-                var platformProperty = applicationType.GetProperty("platform", BindingFlags.Public | BindingFlags.Static);
-                var platformValue = platformProperty?.GetValue(null, null)?.ToString();
-                if (!string.IsNullOrEmpty(platformValue) && ContainsOrdinalIgnoreCase(platformValue, "IPhonePlayer"))
-                {
-                    return true;
-                }
-
-                var scriptingUtilityType = Type.GetType("UnityEngine.ScriptingUtility, UnityEngine.CoreModule") ??
-                                           Type.GetType("UnityEngine.ScriptingUtility, UnityEngine");
-                if (scriptingUtilityType != null)
-                {
-                    var isIl2CppProperty = scriptingUtilityType.GetProperty("isIL2CPP", BindingFlags.Public | BindingFlags.Static);
-                    if (isIl2CppProperty != null && isIl2CppProperty.PropertyType == typeof(bool))
-                    {
-                        return (bool)isIl2CppProperty.GetValue(null, null);
-                    }
-
-                    var method = scriptingUtilityType.GetMethod("IsIL2CPP", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
-                    if (method != null && method.ReturnType == typeof(bool))
-                    {
-                        return (bool)method.Invoke(null, null);
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore reflection errors; we'll fall back to default binding behaviour.
-            }
-
-            return false;
-        }
-
-        private static bool IsNullOrWhiteSpace(string value)
-        {
-            if (value == null)
-            {
+                mode = StateInternalOnly;
                 return true;
             }
 
-            for (int i = 0; i < value.Length; ++i)
+            if (string.Equals(trimmed, "external", comparison) ||
+                string.Equals(trimmed, "dll", comparison))
             {
-                if (!char.IsWhiteSpace(value[i]))
-                {
-                    return false;
-                }
+                mode = StateExternalOnly;
+                return true;
             }
 
-            return true;
+            return false;
         }
 
-        private static bool ContainsOrdinalIgnoreCase(string source, string value)
+        private static bool IsTrue(string value)
         {
-            if (source == null || value == null)
+            if (string.IsNullOrWhiteSpace(value))
             {
                 return false;
             }
 
-            return source.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
+            var trimmed = value.Trim();
+            return string.Equals(trimmed, "1", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(trimmed, "true", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(trimmed, "yes", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(trimmed, "on", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool DetectAppleMobilePlatform()
+        {
+            try
+            {
+                return RuntimeInformation.IsOSPlatform(AppleIosPlatform) ||
+                       RuntimeInformation.IsOSPlatform(AppleTvOsPlatform);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool DetectUnityIl2Cpp()
+        {
+            try
+            {
+                if (UnityScriptingUtilityIsIl2CppProperty != null &&
+                    UnityScriptingUtilityIsIl2CppProperty.PropertyType == typeof(bool) &&
+                    UnityScriptingUtilityIsIl2CppProperty.GetIndexParameters().Length == 0)
+                {
+                    var propertyValue = UnityScriptingUtilityIsIl2CppProperty.GetValue(null, null);
+                    if (propertyValue is bool boolPropertyValue)
+                    {
+                        return boolPropertyValue;
+                    }
+                }
+
+                if (UnityScriptingUtilityIsIl2CppMethod != null &&
+                    UnityScriptingUtilityIsIl2CppMethod.ReturnType == typeof(bool))
+                {
+                    var methodValue = UnityScriptingUtilityIsIl2CppMethod.Invoke(null, null);
+                    if (methodValue is bool boolMethodValue)
+                    {
+                        return boolMethodValue;
+                    }
+                }
+
+                var platformValue = UnityApplicationPlatformProperty?.GetValue(null, null)?.ToString();
+                return !string.IsNullOrEmpty(platformValue) &&
+                       platformValue.IndexOf("IPhonePlayer", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool ProbeInternalBinding()
+        {
+            try
+            {
+                BindingProbe.Touch();
+                return true;
+            }
+            catch (DllNotFoundException)
+            {
+            }
+            catch (EntryPointNotFoundException)
+            {
+            }
+            catch (BadImageFormatException)
+            {
+            }
+
+            return false;
+        }
+
+        private static Type GetTypeOrDefault(params string[] typeNames)
+        {
+            if (typeNames == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < typeNames.Length; ++i)
+            {
+                var typeName = typeNames[i];
+                if (typeName == null)
+                {
+                    continue;
+                }
+
+                var type = Type.GetType(typeName);
+                if (type != null)
+                {
+                    return type;
+                }
+            }
+
+            return null;
+        }
+
+        private static class BindingProbe
+        {
+            [DllImport(InternalFilename, EntryPoint = "SherpaOnnxGetVersionStr")]
+            private static extern IntPtr SherpaOnnxGetVersionStr();
+
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            internal static void Touch()
+            {
+                // We only care that the call succeeds without throwing.
+                SherpaOnnxGetVersionStr();
+            }
         }
     }
 }

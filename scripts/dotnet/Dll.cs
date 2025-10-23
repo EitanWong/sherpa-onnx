@@ -23,16 +23,12 @@ namespace SherpaOnnx
 
         internal delegate TResult ResultFactory<TResult>();
         internal delegate void VoidAction();
+        private const MethodImplOptions AggressiveInliningCompat = (MethodImplOptions)256;
 
         private const int StateInternalPreferred = (int)BindingMode.InternalPreferred;
         private const int StateInternalOnly = (int)BindingMode.InternalOnly;
         private const int StateExternalOnly = (int)BindingMode.ExternalOnly;
         private const BindingFlags StaticPublicBindingFlags = BindingFlags.Public | BindingFlags.Static;
-
-        private static readonly OSPlatform AppleIosPlatform = OSPlatform.Create("IOS");
-        private static readonly OSPlatform AppleTvOsPlatform = OSPlatform.Create("TVOS");
-
-        private static readonly bool IsAppleMobile = DetectAppleMobilePlatform();
         private static readonly Type UnityScriptingUtilityType = GetTypeOrDefault(
             "UnityEngine.ScriptingUtility, UnityEngine.CoreModule",
             "UnityEngine.ScriptingUtility, UnityEngine");
@@ -58,7 +54,7 @@ namespace SherpaOnnx
                 return;
             }
 
-            if (IsAppleMobile || IsUnityIl2CppRuntime)
+            if (IsUnityIl2CppRuntime)
             {
                 _bindingState = StateInternalOnly;
                 return;
@@ -67,7 +63,7 @@ namespace SherpaOnnx
             _bindingState = ProbeInternalBinding() ? StateInternalOnly : StateExternalOnly;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(AggressiveInliningCompat)]
         internal static TResult Invoke<TResult>(ResultFactory<TResult> internalCall, ResultFactory<TResult> externalCall)
         {
             if (TryInvokeInternalCore(internalCall, out var result))
@@ -78,7 +74,7 @@ namespace SherpaOnnx
             return InvokeExternal(externalCall);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(AggressiveInliningCompat)]
         internal static void Invoke(VoidAction internalCall, VoidAction externalCall)
         {
             if (TryInvokeInternalCore(internalCall))
@@ -89,19 +85,19 @@ namespace SherpaOnnx
             InvokeExternal(externalCall);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(AggressiveInliningCompat)]
         internal static bool TryInvokeInternal<TResult>(ResultFactory<TResult> internalCall, out TResult result)
         {
             return TryInvokeInternalCore(internalCall, out result);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(AggressiveInliningCompat)]
         internal static bool InvokeInternal(VoidAction internalCall)
         {
             return TryInvokeInternalCore(internalCall);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(AggressiveInliningCompat)]
         private static bool TryInvokeInternalCore<TResult>(ResultFactory<TResult> internalCall, out TResult result)
         {
             result = default;
@@ -128,7 +124,7 @@ namespace SherpaOnnx
             return false;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(AggressiveInliningCompat)]
         private static bool TryInvokeInternalCore(VoidAction internalCall)
         {
             if (_bindingState == StateExternalOnly)
@@ -154,7 +150,7 @@ namespace SherpaOnnx
             return false;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(AggressiveInliningCompat)]
         private static TResult InvokeExternal<TResult>(ResultFactory<TResult> externalCall)
         {
             var value = externalCall();
@@ -162,7 +158,7 @@ namespace SherpaOnnx
             return value;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(AggressiveInliningCompat)]
         private static void InvokeExternal(VoidAction externalCall)
         {
             externalCall();
@@ -192,7 +188,7 @@ namespace SherpaOnnx
         private static bool TryGetBindingMode(string value, out int mode)
         {
             mode = default;
-            if (string.IsNullOrWhiteSpace(value))
+            if (IsNullOrWhiteSpaceCompat(value))
             {
                 return false;
             }
@@ -220,7 +216,7 @@ namespace SherpaOnnx
 
         private static bool IsTrue(string value)
         {
-            if (string.IsNullOrWhiteSpace(value))
+            if (IsNullOrWhiteSpaceCompat(value))
             {
                 return false;
             }
@@ -232,17 +228,23 @@ namespace SherpaOnnx
                    string.Equals(trimmed, "on", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool DetectAppleMobilePlatform()
+        // .NET 2.0/3.5 compatibility shim for string.IsNullOrWhiteSpace
+        private static bool IsNullOrWhiteSpaceCompat(string value)
         {
-            try
+            if (value == null)
             {
-                return RuntimeInformation.IsOSPlatform(AppleIosPlatform) ||
-                       RuntimeInformation.IsOSPlatform(AppleTvOsPlatform);
+                return true;
             }
-            catch
+
+            for (int i = 0; i < value.Length; ++i)
             {
-                return false;
+                if (!char.IsWhiteSpace(value[i]))
+                {
+                    return false;
+                }
             }
+
+            return true;
         }
 
         private static bool DetectUnityIl2Cpp()

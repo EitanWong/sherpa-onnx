@@ -13,7 +13,7 @@ namespace SherpaOnnx
             Matcha = new OfflineTtsMatchaModelConfig();
             Kokoro = new OfflineTtsKokoroModelConfig();
             Kitten = new OfflineTtsKittenModelConfig();
-            // Zipvoice = new OfflineTtsZipvoiceModelConfig();
+            ZipVoice = new OfflineTtsZipVoiceModelConfig();
             NumThreads = 1;
             Debug = 0;
             Provider = "cpu";
@@ -29,6 +29,6 @@ namespace SherpaOnnx
         public OfflineTtsMatchaModelConfig Matcha;
         public OfflineTtsKokoroModelConfig Kokoro;
         public OfflineTtsKittenModelConfig Kitten;
-        // public OfflineTtsZipvoiceModelConfig Zipvoice;
+        public OfflineTtsZipVoiceModelConfig ZipVoice;
     }
 }
